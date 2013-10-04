@@ -191,16 +191,13 @@ class UdpServer:
         if version == 4:
             self_ip = socket.inet_pton(addr_family, self.state["_ip4"])
             controllers = self.controllers
-            self.lookup(d_addr, None)
         elif version == 6:
             self_ip = socket.inet_pton(addr_family, self.state["_ip6"])
             controllers = self.controllers6
-            self.lookup(None, d_addr)
 
-        if (s_addr_n == self_ip):
+        if (s_addr_n == self_ip and len(controllers.values())> 0):
             # TODO - Send to first controller, need better routing policy
-            if len(controllers.values()) > 0:
-                dest = (controllers.values()[0], CONTROLLER_PORT)
+            dest = (controllers.values()[0], CONTROLLER_PORT)
         elif (d_addr_n == self_ip):
             dest = (LOCALHOST6, SVPN_PORT)
         elif d_addr_n in controllers:
