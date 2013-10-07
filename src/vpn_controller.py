@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import socket, select, json, time, sys, os, binascii, struct, hashlib
+import socket, select, json, time, sys, os, binascii, struct, hashlib, logging
 
 STUN = "stun.l.google.com:19302"
 TURN = "209.141.33.252:19302"
@@ -17,6 +17,8 @@ MODE = "svpn"
 SEC = True
 WAIT_TIME = 30
 BUF_SIZE = 4096
+
+logging.basicConfig(level=logging.DEBUG)
 
 def gen_ip4(uid, peers, ip4=IP4):
     return ip4[:-3] + str( 101 + len(peers))
@@ -40,17 +42,18 @@ def make_call(sock, **params):
     else: dest = (LOCALHOST, SVPN_PORT)
     return sock.sendto(json.dumps(params), dest)
 
-def do_set_callback(sock, addr):
-    return make_call(sock, m="set_callback", ip=addr[0], port=addr[1])
+def do_set_cb_endpoint(sock, addr):
+    return make_call(sock, m="set_cb_endpoint", ip=addr[0], port=addr[1])
 
 def do_register_service(sock, username, password, host):
     return make_call(sock, m="register_service", username=username,
                      password=password, host=host)
 
-def do_create_link(sock, uid, fpr, nid, sec, cas, stun=STUN, turn=TURN):
-    return make_call(sock, m="create_link", uid=uid, fpr=fpr, nid=nid,
-                     stun=stun, turn=turn, turn_user=TURN_USER,
-                     turn_pass=TURN_PASS, sec=sec, cas=cas)
+def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=STUN, turn=TURN):
+    return make_call(sock, m="create_link", uid=uid, fpr=fpr,
+                     overlay_id=overlay_id, stun=stun, turn=turn,
+                     turn_user=TURN_USER, turn_pass=TURN_PASS, 
+                     sec=sec, cas=cas)
 
 def do_trim_link(sock, uid):
     return make_call(sock, m="trim_link", uid=uid)
@@ -67,6 +70,9 @@ def do_send_msg(sock, nid, uid, data):
 
 def do_get_state(sock):
     return make_call(sock, m="get_state")
+
+def do_set_logging(sock):
+    return make_call(sock, m="set_logging", flag=1)
 
 class UdpServer:
     def __init__(self, user, password, host, ip4):
@@ -91,7 +97,8 @@ class UdpServer:
         if MODE == "svpn" and hostname != "localhost": uid = gen_uid(hostname)
         elif MODE == "gvpn": uid = gen_uid(self.ip4)
 
-        do_set_callback(self.sock, self.sock.getsockname())
+        do_set_logging(self.sock)
+        do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, self.ip4, gen_ip6(uid))
         do_register_service(self.sock, self.user, self.password, self.host)
         do_get_state(self.sock)
@@ -185,7 +192,7 @@ class UdpServer:
 
         s_addr = socket.inet_ntop(addr_family, s_addr_n)
         d_addr = socket.inet_ntop(addr_family, d_addr_n)
-        print version, s_addr, d_addr
+        logging.debug("%s %s %s" % (version, s_addr, d_addr))
         if MODE == "svpn" or len(self.state["_ip4"]) == 0: return
 
         if version == 4:
@@ -212,57 +219,32 @@ class UdpServer:
         socks = select.select([self.sock], [], [], WAIT_TIME)
         for sock in socks[0]:
             data, addr = sock.recvfrom(BUF_SIZE)
-            print addr, len(data)
+            logging.debug("%s %s" % (addr, len(data)))
             if data[0] == '{': msg = json.loads(data)
             else: self.handle_packet(data); continue
 
-            print "recv %s %s" % (addr, data)
-            if isinstance(msg, dict) and "_uid" in msg:
-                self.set_state(msg)
-                continue
+            logging.debug("recv %s %s" % (addr, data))
+            msg_type = msg.get("type", None)
 
-            if isinstance(msg, dict) and "uid" in msg and "status" in msg:
-                self.peers[msg["uid"]] = msg
-                continue
-
-            # we only process if we have state and msg is json dict
-            if len(self.state["_fpr"]) == 0 or not isinstance(msg, dict):
-                continue
-
-            if msg.get("m", None) == "lookup":
-                self.process_lookup(msg, addr)
-                continue
-
-            if msg.get("m", None) == "nc_lookup":
-                self.lookup(msg["ip4"], msg["ip6"])
-                continue
-
-            ip4 = msg.get("ip4", None)
-            fpr_len = len(self.state["_fpr"])
-            local_ip = LOCALHOST6 if socket.has_ipv6 else LOCALHOST
-
-            # this is a peer discovery notification
-            if "data" in msg and len(msg["data"]) == fpr_len:
-                if addr[0] == local_ip:
-                    self.create_connection(msg["uid"], msg["data"], 1, SEC,
-                                           "", ip4)
-                else:
-                    self.create_connection(msg["uid"], msg["data"], 0, SEC,
-                                           "", ip4)
-            # this is a connection request notification
-            elif "data" in msg and len(msg["data"]) > fpr_len:
-                fpr = msg["data"][:fpr_len]
-                cas = msg["data"][fpr_len + 1:]
-                # this came from social network
+            if msg_type == "local_state": self.set_state(msg)
+            elif msg_type == "peer_state": self.peers[msg["uid"]] = msg
+            elif msg_type == "lookup": self.process_lookup(msg, addr)
+            elif msg_type == "nc_lookup": self.lookup(msg["ip4"], msg["ip6"])
+            elif msg_type == "con_req" or msg_type == "con_resp":
+                ip4 = msg.get("ip4", None)
+                uid = msg.get("uid", None)
+                data = msg.get("data", "")
+                fpr_len = len(self.state["_fpr"])
+                fpr = data[:fpr_len]
+                cas = data[fpr_len + 1:]
+                local_ip = LOCALHOST6 if socket.has_ipv6 else LOCALHOST
                 if addr[0] == local_ip and fpr != self.state["_fpr"]:
-                    self.create_connection(msg["uid"], fpr, 1, SEC, cas, ip4)
-                # this came from another controller
-                elif msg["uid"] == self.state["_uid"] and "from" in msg:
+                    self.create_connection(uid, fpr, 1, SEC, cas, ip4)
+                elif uid == self.state["_uid"] and "from" in msg:
                     self.create_connection(msg["from"], fpr, 0, SEC, cas, ip4)
                 else:
                     self.route_notification(msg, addr)
-            # this is an ip address update
-            elif "data" in msg and msg["data"].startswith("ip4:"):
+            elif msg_type == "set_ip":
                 ip4 = msg["data"][4:]
                 ip6 = gen_ip6(msg["uid"])
                 do_set_remote_ip(self.sock, msg["uid"], ip4, ip6)
