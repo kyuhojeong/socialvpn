@@ -4,14 +4,12 @@ import socket, select, json, time, sys, hashlib, binascii, os, logging, argparse
 
 # Set default config values
 CONFIG = {
-    "stun": "stun.l.google.com:19302",
-    "turn": "",
-    "turn_user": "",
-    "turn_pass": "",
+    "stun": ["stun.l.google.com:19302"],
+    "turn": [],  # Contains dicts with "server", "user", "pass" keys
     "ip4": "172.31.0.100",
-    "localhost":"127.0.0.1",
+    "localhost": "127.0.0.1",
     "ip6_prefix": "fd50:0dbc:41f2:4a3c",
-    "localhost6":"::1",
+    "localhost6": "::1",
     "svpn_port": 5800,
     "controller_port": 5801,
     "uid_size": 40,
@@ -57,13 +55,13 @@ def do_register_service(sock, username, password, host):
 
 def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
     if stun is None:
-        stun = CONFIG["stun"]
+        stun = CONFIG["stun"][0]
     if turn is None:
-        turn = CONFIG["turn"]
+        turn = CONFIG["turn"][0]["server"]
     return make_call(sock, m="create_link", uid=uid, fpr=fpr,
                      overlay_id=overlay_id, stun=stun, turn=turn,
-                     turn_user=CONFIG["turn_user"],
-                     turn_pass=CONFIG["turn_pass"], sec=sec, cas=cas)
+                     turn_user=CONFIG["turn"][0]["user"],
+                     turn_pass=CONFIG["turn"][0]["pass"], sec=sec, cas=cas)
 
 def do_trim_link(sock, uid):
     return make_call(sock, m="trim_link", uid=uid)
