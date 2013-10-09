@@ -74,7 +74,7 @@ def do_get_state(sock):
 def do_set_logging(sock):
     return make_call(sock, m="set_logging", flag=1)
 
-class UdpServer:
+class UdpServer(object):
     def __init__(self, user, password, host, ip4):
         self.user = user
         self.password = password
