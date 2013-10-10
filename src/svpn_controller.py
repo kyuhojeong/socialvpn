@@ -1,10 +1,18 @@
 #!/usr/bin/env python
 
 import socket, select, json, time, sys, hashlib, binascii, os, logging, argparse
+import random
 
 # Set default config values
 CONFIG = {
-    "stun": ["stun.l.google.com:19302"],
+    "stun": ["stun.l.google.com:19302", "stun1.l.google.com:19302",
+             "stun2.l.google.com:19302", "stun3.l.google.com:19302",
+             "stun4.l.google.com:19302", "stun01.sipphone.com",
+             "stun.ekiga.net", "stun.fwdnet.net", "stun.ideasip.com",
+             "stun.iptel.org", "stun.rixtelecom.se", "stun.schlund.de",
+             "stunserver.org", "stun.softjoys.com", "stun.voiparound.com",
+             "stun.voipbuster.com", "stun.voipstunt.com", "stun.voxgratia.org",
+             "stun.xten.com"],
     "turn": [],  # Contains dicts with "server", "user", "pass" keys
     "ip4": "172.31.0.100",
     "localhost": "127.0.0.1",
@@ -55,7 +63,7 @@ def do_register_service(sock, username, password, host):
 
 def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
     if stun is None:
-        stun = CONFIG["stun"][0]
+        stun = random.choice(CONFIG["stun"])
     if turn is None:
         turn = CONFIG["turn"][0]["server"]
     return make_call(sock, m="create_link", uid=uid, fpr=fpr,
