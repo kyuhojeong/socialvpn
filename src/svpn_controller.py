@@ -1,7 +1,16 @@
 #!/usr/bin/env python
 
-import socket, select, json, time, sys, hashlib, binascii, os, logging, argparse
+import argparse
+import binascii
+import hashlib
+import json
+import logging
+import os
 import random
+import select
+import socket
+import sys
+import time
 
 # Set default config values
 CONFIG = {
