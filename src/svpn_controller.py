@@ -65,11 +65,14 @@ def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
     if stun is None:
         stun = random.choice(CONFIG["stun"])
     if turn is None:
-        turn = CONFIG["turn"][0]["server"]
+        if CONFIG["turn"]:
+            turn = random.choice(CONFIG["turn"])
+        else:
+            turn = {"server": "", "user": "", "pass": ""}
     return make_call(sock, m="create_link", uid=uid, fpr=fpr,
-                     overlay_id=overlay_id, stun=stun, turn=turn,
-                     turn_user=CONFIG["turn"][0]["user"],
-                     turn_pass=CONFIG["turn"][0]["pass"], sec=sec, cas=cas)
+                     overlay_id=overlay_id, stun=stun, turn=turn["server"],
+                     turn_user=turn["user"],
+                     turn_pass=turn["pass"], sec=sec, cas=cas)
 
 def do_trim_link(sock, uid):
     return make_call(sock, m="trim_link", uid=uid)
