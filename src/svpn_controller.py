@@ -1,33 +1,55 @@
 #!/usr/bin/env python
 
-import socket, select, json, time, sys, hashlib, binascii, os, logging
+import argparse
+import binascii
+import hashlib
+import json
+import logging
+import os
+import random
+import select
+import socket
+import sys
+import time
 
-STUN = "stun.l.google.com:19302"
-TURN = ""
-TURN_USER = ""
-TURN_PASS = ""
-IP4 = "172.31.0.100"
-LOCALHOST= "127.0.0.1"
-IP6_PREFIX = "fd50:0dbc:41f2:4a3c"
-LOCALHOST6= "::1"
-SVPN_PORT = 5800
-CONTROLLER_PORT = 5801
-UID_SIZE = 40
-SEC = True
-WAIT_TIME = 30
-BUF_SIZE = 4096
+# Set default config values
+CONFIG = {
+    "stun": ["stun.l.google.com:19302", "stun1.l.google.com:19302",
+             "stun2.l.google.com:19302", "stun3.l.google.com:19302",
+             "stun4.l.google.com:19302", "stun01.sipphone.com",
+             "stun.ekiga.net", "stun.fwdnet.net", "stun.ideasip.com",
+             "stun.iptel.org", "stun.rixtelecom.se", "stun.schlund.de",
+             "stunserver.org", "stun.softjoys.com", "stun.voiparound.com",
+             "stun.voipbuster.com", "stun.voipstunt.com", "stun.voxgratia.org",
+             "stun.xten.com"],
+    "turn": [],  # Contains dicts with "server", "user", "pass" keys
+    "ip4": "172.31.0.100",
+    "localhost": "127.0.0.1",
+    "ip6_prefix": "fd50:0dbc:41f2:4a3c",
+    "localhost6": "::1",
+    "svpn_port": 5800,
+    "controller_port": 5801,
+    "uid_size": 40,
+    "sec": True,
+    "wait_time": 30,
+    "buf_size": 4096,
+}
 
 logging.basicConfig(level=logging.DEBUG)
 
-def gen_ip4(uid, peers, ip4=IP4):
+def gen_ip4(uid, peers, ip4=None):
+    if ip4 is None:
+        ip4 = CONFIG["ip4"]
     return ip4[:-3] + str( 101 + len(peers))
 
-def gen_ip6(uid, ip6=IP6_PREFIX):
+def gen_ip6(uid, ip6=None):
+    if ip6 is None:
+        ip6 = CONFIG["ip6_prefix"]
     for i in range(0, 16, 4): ip6 += ":" + uid[i:i+4]
     return ip6
 
 def gen_uid(ip4):
-    return hashlib.sha1(ip4).hexdigest()[:UID_SIZE]
+    return hashlib.sha1(ip4).hexdigest()[:CONFIG["uid_size"]]
 
 def get_ip4(uid, ip4):
     parts = ip4.split(".")
@@ -37,8 +59,8 @@ def get_ip4(uid, ip4):
     return None
 
 def make_call(sock, **params):
-    if socket.has_ipv6: dest = (LOCALHOST6, SVPN_PORT)
-    else: dest = (LOCALHOST, SVPN_PORT)
+    if socket.has_ipv6: dest = (CONFIG["localhost6"], CONFIG["svpn_port"])
+    else: dest = (CONFIG["localhost"], CONFIG["svpn_port"])
     return sock.sendto(json.dumps(params), dest)
 
 def do_set_cb_endpoint(sock, addr):
@@ -48,11 +70,18 @@ def do_register_service(sock, username, password, host):
     return make_call(sock, m="register_service", username=username,
                      password=password, host=host)
 
-def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=STUN, turn=TURN):
+def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
+    if stun is None:
+        stun = random.choice(CONFIG["stun"])
+    if turn is None:
+        if CONFIG["turn"]:
+            turn = random.choice(CONFIG["turn"])
+        else:
+            turn = {"server": "", "user": "", "pass": ""}
     return make_call(sock, m="create_link", uid=uid, fpr=fpr,
-                     overlay_id=overlay_id, stun=stun, turn=turn,
-                     turn_user=TURN_USER, turn_pass=TURN_PASS, 
-                     sec=sec, cas=cas)
+                     overlay_id=overlay_id, stun=stun, turn=turn["server"],
+                     turn_user=turn["user"],
+                     turn_pass=turn["pass"], sec=sec, cas=cas)
 
 def do_trim_link(sock, uid):
     return make_call(sock, m="trim_link", uid=uid)
@@ -79,8 +108,8 @@ class UdpServer(object):
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         else:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("", CONTROLLER_PORT))
-        uid = binascii.b2a_hex(os.urandom(UID_SIZE/2))
+        self.sock.bind(("", CONFIG["controller_port"]))
+        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
         do_set_logging(self.sock)
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid))
@@ -95,12 +124,13 @@ class UdpServer(object):
     def trim_connections(self):
         for k, v in self.peers.iteritems():
             if "fpr" in v and v["status"] == "offline":
-                if v["last_time"] > WAIT_TIME * 2: do_trim_link(self.sock, k)
+                if v["last_time"] > CONFIG["wait_time"] * 2:
+                    do_trim_link(self.sock, k)
 
     def serve(self):
-        socks = select.select([self.sock], [], [], WAIT_TIME)
+        socks = select.select([self.sock], [], [], CONFIG["wait_time"])
         for sock in socks[0]:
-            data, addr = sock.recvfrom(BUF_SIZE)
+            data, addr = sock.recvfrom(CONFIG["buf_size"])
             if data[0] == '{':
                 msg = json.loads(data)
                 logging.debug("recv %s %s" % (addr, data))
@@ -115,20 +145,33 @@ class UdpServer(object):
                     fpr = msg["data"][:fpr_len]
                     cas = msg["data"][fpr_len + 1:]
                     ip4 = gen_ip4(msg["uid"], self.peerlist, self.state["_ip4"])
-                    self.create_connection(msg["uid"], fpr, 1, SEC, cas, ip4)
+                    self.create_connection(msg["uid"], fpr, 1, CONFIG["sec"],
+                                           cas, ip4)
 
 def main():
-    if len(sys.argv) < 4:
-        print "usage: %s username password host" % (sys.argv[0],)
-        return
+    parser = argparse.ArgumentParser()
+    parser.add_argument("username")
+    parser.add_argument("password")
+    parser.add_argument("host")
+    parser.add_argument("-c", help="load configuration from a file",
+                        dest="config_file", metavar="config_file")
+    args = parser.parse_args()
+
+    if args.config_file:
+        # Load the config file
+        logging.debug("Loading config file %s" % args.config_file)
+        with open(args.config_file) as f:
+            loaded_config = json.load(f)
+        CONFIG.update(loaded_config)
+    logging.debug("Configuration:\n%s" % CONFIG)
 
     count = 0
-    server = UdpServer(sys.argv[1], sys.argv[2], sys.argv[3], IP4)
+    server = UdpServer(args.username, args.password, args.host, CONFIG["ip4"])
     last_time = time.time()
     while True:
         server.serve()
         time_diff = time.time() - last_time
-        if time_diff > WAIT_TIME:
+        if time_diff > CONFIG["wait_time"]:
             count += 1
             server.trim_connections()
             do_get_state(server.sock)
