@@ -12,5 +12,8 @@
     "uid_size": 40,
     "sec": true,
     "wait_time": 30,
-    "buf_size": 4096
+    "buf_size": 4096,
+    "xmpp_username": "user",
+    "xmpp_password": "blah",
+    "xmpp_host": "example.com"
 }
