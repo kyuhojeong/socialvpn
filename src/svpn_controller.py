@@ -2,6 +2,7 @@
 
 import argparse
 import binascii
+import getpass
 import hashlib
 import json
 import logging
@@ -150,9 +151,6 @@ class UdpServer(object):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("username")
-    parser.add_argument("password")
-    parser.add_argument("host")
     parser.add_argument("-c", help="load configuration from a file",
                         dest="config_file", metavar="config_file")
     args = parser.parse_args()
@@ -165,8 +163,17 @@ def main():
         CONFIG.update(loaded_config)
     logging.debug("Configuration:\n%s" % CONFIG)
 
+    if not ("xmpp_username" in CONFIG and "xmpp_host" in CONFIG):
+        raise ValueError("At least 'xmpp_username' and 'xmpp_host' must be "
+                         "specified in config file")
+
+    if "xmpp_password" not in CONFIG:
+        prompt = "\nPassword for %s: " % CONFIG["xmpp_username"]
+        CONFIG["xmpp_password"] = getpass.getpass(prompt)
+
     count = 0
-    server = UdpServer(args.username, args.password, args.host, CONFIG["ip4"])
+    server = UdpServer(CONFIG["xmpp_username"], CONFIG["xmpp_password"],
+                       CONFIG["xmpp_host"], CONFIG["ip4"])
     last_time = time.time()
     while True:
         server.serve()
