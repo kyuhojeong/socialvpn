@@ -17,19 +17,13 @@ import time
 CONFIG = {
     "stun": ["stun.l.google.com:19302", "stun1.l.google.com:19302",
              "stun2.l.google.com:19302", "stun3.l.google.com:19302",
-             "stun4.l.google.com:19302", "stun01.sipphone.com",
-             "stun.ekiga.net", "stun.fwdnet.net", "stun.ideasip.com",
-             "stun.iptel.org", "stun.rixtelecom.se", "stun.schlund.de",
-             "stunserver.org", "stun.softjoys.com", "stun.voiparound.com",
-             "stun.voipbuster.com", "stun.voipstunt.com", "stun.voxgratia.org",
-             "stun.xten.com"],
+             "stun4.l.google.com:19302"],
     "turn": [],  # Contains dicts with "server", "user", "pass" keys
     "ip4": "172.31.0.100",
     "localhost": "127.0.0.1",
     "ip6_prefix": "fd50:0dbc:41f2:4a3c",
     "localhost6": "::1",
     "svpn_port": 5800,
-    "controller_port": 5801,
     "uid_size": 40,
     "sec": True,
     "wait_time": 30,
@@ -87,9 +81,11 @@ def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
 def do_trim_link(sock, uid):
     return make_call(sock, m="trim_link", uid=uid)
 
-def do_set_local_ip(sock, uid, ip4, ip6, ip4_mask=24, ip6_mask=64):
+def do_set_local_ip(sock, uid, ip4, ip6, ip4_mask=24, ip6_mask=64,
+                    subnet_mask=32):
     return make_call(sock, m="set_local_ip", uid=uid, ip4=ip4, ip6=ip6,
-                     ip4_mask=ip4_mask, ip6_mask=ip6_mask)
+                     ip4_mask=ip4_mask, ip6_mask=ip6_mask,
+                     subnet_mask=subnet_mask)
 
 def do_set_remote_ip(sock, uid, ip4, ip6):
     return make_call(sock, m="set_remote_ip", uid=uid, ip4=ip4, ip6=ip6)
@@ -109,7 +105,7 @@ class UdpServer(object):
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         else:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("", CONFIG["controller_port"]))
+        self.sock.bind(("", 0))
         uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
         do_set_logging(self.sock)
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
