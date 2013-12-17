@@ -28,9 +28,9 @@ CONFIG = {
     "sec": True,
     "wait_time": 30,
     "buf_size": 4096,
+    "logging": 1,
+    "logging_level" : "logging.INFO"
 }
-
-logging.basicConfig(level=logging.DEBUG)
 
 def gen_ip4(uid, peers, ip4=None):
     if ip4 is None:
@@ -93,8 +93,8 @@ def do_set_remote_ip(sock, uid, ip4, ip6):
 def do_get_state(sock):
     return make_call(sock, m="get_state")
 
-def do_set_logging(sock):
-    return make_call(sock, m="set_logging", flag=1)
+def do_set_logging(sock, logging):
+    return make_call(sock, m="set_logging", logging=logging)
 
 class UdpServer(object):
     def __init__(self, user, password, host, ip4):
@@ -107,7 +107,7 @@ class UdpServer(object):
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("", 0))
         uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
-        do_set_logging(self.sock)
+        do_set_logging(self.sock, CONFIG["logging"])
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid))
         do_register_service(self.sock, user, password, host)
@@ -145,7 +145,7 @@ class UdpServer(object):
                     self.create_connection(msg["uid"], fpr, 1, CONFIG["sec"],
                                            cas, ip4)
 
-def main():
+def parse_config():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", help="load configuration from a file",
                         dest="config_file", metavar="config_file")
@@ -153,11 +153,9 @@ def main():
 
     if args.config_file:
         # Load the config file
-        logging.debug("Loading config file %s" % args.config_file)
         with open(args.config_file) as f:
             loaded_config = json.load(f)
         CONFIG.update(loaded_config)
-    logging.debug("Configuration:\n%s" % CONFIG)
 
     if not ("xmpp_username" in CONFIG and "xmpp_host" in CONFIG):
         raise ValueError("At least 'xmpp_username' and 'xmpp_host' must be "
@@ -167,6 +165,12 @@ def main():
         prompt = "\nPassword for %s: " % CONFIG["xmpp_username"]
         CONFIG["xmpp_password"] = getpass.getpass(prompt)
 
+    if "logging_level" in CONFIG:
+        logging.basicConfig(level=eval(CONFIG["logging_level"]))
+
+def main():
+
+    parse_config()
     count = 0
     server = UdpServer(CONFIG["xmpp_username"], CONFIG["xmpp_password"],
                        CONFIG["xmpp_host"], CONFIG["ip4"])
