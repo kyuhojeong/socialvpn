@@ -23,6 +23,9 @@ CONFIG = {
     "localhost": "127.0.0.1",
     "ip6_prefix": "fd50:0dbc:41f2:4a3c",
     "localhost6": "::1",
+    "ip4_mask": 24,
+    "ip6_mask": 64,
+    "subnet_mask": 32,
     "svpn_port": 5800,
     "uid_size": 40,
     "sec": True,
@@ -81,8 +84,7 @@ def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
 def do_trim_link(sock, uid):
     return make_call(sock, m="trim_link", uid=uid)
 
-def do_set_local_ip(sock, uid, ip4, ip6, ip4_mask=24, ip6_mask=64,
-                    subnet_mask=32):
+def do_set_local_ip(sock, uid, ip4, ip6, ip4_mask, ip6_mask, subnet_mask):
     return make_call(sock, m="set_local_ip", uid=uid, ip4=ip4, ip6=ip6,
                      ip4_mask=ip4_mask, ip6_mask=ip6_mask,
                      subnet_mask=subnet_mask)
@@ -109,7 +111,8 @@ class UdpServer(object):
         uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
         do_set_logging(self.sock, CONFIG["logging"])
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
-        do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid))
+        do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid), CONFIG["ip4_mask"],
+                        CONFIG["ip6_mask"], CONFIG["subnet_mask"])
         do_register_service(self.sock, user, password, host)
         do_get_state(self.sock)
 
