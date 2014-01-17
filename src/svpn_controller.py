@@ -31,8 +31,8 @@ CONFIG = {
     "sec": True,
     "wait_time": 30,
     "buf_size": 4096,
-    "logging": 1,
-    "logging_level" : "logging.INFO"
+    "tincan_logging": 1,
+    "controller_logging" : "logging.INFO"
 }
 
 def gen_ip4(uid, peers, ip4=None):
@@ -109,7 +109,7 @@ class UdpServer(object):
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("", 0))
         uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
-        do_set_logging(self.sock, CONFIG["logging"])
+        do_set_logging(self.sock, CONFIG["tincan_logging"])
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid), CONFIG["ip4_mask"],
                         CONFIG["ip6_mask"], CONFIG["subnet_mask"])
@@ -168,8 +168,8 @@ def parse_config():
         prompt = "\nPassword for %s: " % CONFIG["xmpp_username"]
         CONFIG["xmpp_password"] = getpass.getpass(prompt)
 
-    if "logging_level" in CONFIG:
-        logging.basicConfig(level=eval(CONFIG["logging_level"]))
+    if "controller_logging" in CONFIG:
+        logging.basicConfig(level=eval(CONFIG["controller_logging"]))
 
 def main():
 
