@@ -35,7 +35,9 @@ CONFIG = {
 def gen_ip4(uid, peers, ip4=None):
     if ip4 is None:
         ip4 = CONFIG["ip4"]
-    return ip4[:-3] + str( 101 + len(peers))
+    parts = ip4.split(".")
+    ip4 = parts[0] + "." + parts[1] + "." + parts[2] + "."
+    return ip4 + str( 101 + len(peers))
 
 def gen_ip6(uid, ip6=None):
     if ip6 is None:
