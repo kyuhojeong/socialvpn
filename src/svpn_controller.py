@@ -38,7 +38,8 @@ CONFIG = {
 def gen_ip4(uid, peers, ip4=None):
     if ip4 is None:
         ip4 = CONFIG["ip4"]
-    return ip4[:-3] + str( 101 + len(peers))
+    prefix, _ = ip4.rsplit(".", 1)
+    return "%s.%s" % (prefix, 101 + len(peers))
 
 def gen_ip6(uid, ip6=None):
     if ip6 is None:
@@ -48,13 +49,6 @@ def gen_ip6(uid, ip6=None):
 
 def gen_uid(ip4):
     return hashlib.sha1(ip4).hexdigest()[:CONFIG["uid_size"]]
-
-def get_ip4(uid, ip4):
-    parts = ip4.split(".")
-    ip4 = parts[0] + "." + parts[1] + "." + parts[2] + "."
-    for i in range(1, 255):
-        if uid == gen_uid(ip4 + str(i)): return ip4 + str(i)
-    return None
 
 def make_call(sock, **params):
     if socket.has_ipv6: dest = (CONFIG["localhost6"], CONFIG["svpn_port"])
