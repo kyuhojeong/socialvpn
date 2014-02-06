@@ -27,6 +27,7 @@ CONFIG = {
     "ip6_mask": 64,
     "subnet_mask": 32,
     "svpn_port": 5800,
+    "local_uid": "",
     "uid_size": 40,
     "sec": True,
     "wait_time": 30,
@@ -93,7 +94,7 @@ def do_set_logging(sock, logging):
     return make_call(sock, m="set_logging", logging=logging)
 
 class UdpServer(object):
-    def __init__(self, user, password, host, ip4):
+    def __init__(self, user, password, host, ip4, uid):
         self.state = {}
         self.peers = {}
         self.peerlist = set()
@@ -102,7 +103,7 @@ class UdpServer(object):
         else:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("", 0))
-        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
+
         do_set_logging(self.sock, CONFIG["tincan_logging"])
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid), CONFIG["ip4_mask"],
@@ -142,10 +143,25 @@ class UdpServer(object):
                     self.create_connection(msg["uid"], fpr, 1, CONFIG["sec"],
                                            cas, ip4)
 
+def setup_config(config):
+    """ Validate config and set default value here.
+    Return True if config is changed.
+    """
+    is_changed = False
+    uid = config.get('local_uid')
+    if not uid:
+        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
+        config["local_uid"] = uid
+        is_changed = True
+    return is_changed
+
 def parse_config():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", help="load configuration from a file",
                         dest="config_file", metavar="config_file")
+    parser.add_argument("-u", help="update configuration file if needed",
+                        dest="update_config",
+                        action="store_const", const=True)
     args = parser.parse_args()
 
     if args.config_file:
@@ -153,6 +169,11 @@ def parse_config():
         with open(args.config_file) as f:
             loaded_config = json.load(f)
         CONFIG.update(loaded_config)
+
+    need_save = setup_config(CONFIG)
+    if need_save and args.config_file and args.update_config:
+        with open(args.config_file, "w") as f:
+            json.dump(CONFIG, f, indent=4, sort_keys=True)
 
     if not ("xmpp_username" in CONFIG and "xmpp_host" in CONFIG):
         raise ValueError("At least 'xmpp_username' and 'xmpp_host' must be "
@@ -170,7 +191,7 @@ def main():
     parse_config()
     count = 0
     server = UdpServer(CONFIG["xmpp_username"], CONFIG["xmpp_password"],
-                       CONFIG["xmpp_host"], CONFIG["ip4"])
+                       CONFIG["xmpp_host"], CONFIG["ip4"], CONFIG["local_uid"])
     last_time = time.time()
     while True:
         server.serve()
