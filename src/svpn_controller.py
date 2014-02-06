@@ -36,11 +36,26 @@ CONFIG = {
     "controller_logging" : "logging.INFO"
 }
 
-def gen_ip4(uid, peers, ip4=None):
+IP_MAP = { }
+
+def gen_ip4(uid, peer_map, ip4=None):
     if ip4 is None:
         ip4 = CONFIG["ip4"]
+
+    def_ip = peer_map.get(uid)
+    if def_ip:
+        return def_ip
+
+    ips = set(v for _,v in peer_map.items())
     prefix, _ = ip4.rsplit(".", 1)
-    return "%s.%s" % (prefix, 101 + len(peers))
+    next_ip = "%s.%s" % (prefix, 255)
+    for i in range(101, 255):
+        try_ip = "%s.%s" % (prefix, i)
+        if not next_ip in ips:
+            next_ip = try_ip
+            break
+    peer_map[uid] = next_ip
+    return next_ip
 
 def gen_ip6(uid, ip6=None):
     if ip6 is None:
@@ -98,6 +113,8 @@ class UdpServer(object):
         self.state = {}
         self.peers = {}
         self.peerlist = set()
+        self.ip_map = IP_MAP.copy()
+
         if socket.has_ipv6:
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         else:
@@ -139,7 +156,7 @@ class UdpServer(object):
                     fpr_len = len(self.state["_fpr"])
                     fpr = msg["data"][:fpr_len]
                     cas = msg["data"][fpr_len + 1:]
-                    ip4 = gen_ip4(msg["uid"], self.peerlist, self.state["_ip4"])
+                    ip4 = gen_ip4(msg["uid"], self.ip_map, self.state["_ip4"])
                     self.create_connection(msg["uid"], fpr, 1, CONFIG["sec"],
                                            cas, ip4)
 
@@ -155,13 +172,25 @@ def setup_config(config):
         is_changed = True
     return is_changed
 
+def load_peer_ip_config(ip_config):
+    with open(ip_config) as f:
+        ip_cfg = json.load(f)
+
+    for peer_ip in ip_cfg:
+        uid = peer_ip["uid"]
+        ip = peer_ip["ipv4"]
+        IP_MAP[uid] = ip
+        logging.debug("MAP %s -> %s" % (ip, uid))
+
 def parse_config():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", help="load configuration from a file",
                         dest="config_file", metavar="config_file")
     parser.add_argument("-u", help="update configuration file if needed",
-                        dest="update_config",
-                        action="store_const", const=True)
+                        dest="update_config",action="store_const", const=True)
+    parser.add_argument("-p", help="load remote ip configuration file",
+                        dest="ip_config", metavar="ip_config")
+
     args = parser.parse_args()
 
     if args.config_file:
@@ -185,6 +214,9 @@ def parse_config():
 
     if "controller_logging" in CONFIG:
         logging.basicConfig(level=eval(CONFIG["controller_logging"]))
+
+    if args.ip_config:
+        load_peer_ip_config(args.ip_config)
 
 def main():
 
