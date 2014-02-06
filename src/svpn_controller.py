@@ -51,7 +51,7 @@ def gen_ip4(uid, peer_map, ip4=None):
     next_ip = "%s.%s" % (prefix, 255)
     for i in range(101, 255):
         try_ip = "%s.%s" % (prefix, i)
-        if not next_ip in ips:
+        if not try_ip in ips:
             next_ip = try_ip
             break
     peer_map[uid] = next_ip
