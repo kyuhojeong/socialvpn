@@ -32,7 +32,7 @@ CONFIG = {
     "wait_time": 30,
     "buf_size": 4096,
     "tincan_logging": 1,
-    "controller_logging" : "logging.INFO"
+    "controller_logging" : "INFO"
 }
 
 def gen_ip4(uid, peers, ip4=None):
@@ -163,7 +163,8 @@ def parse_config():
         CONFIG["xmpp_password"] = getpass.getpass(prompt)
 
     if "controller_logging" in CONFIG:
-        logging.basicConfig(level=eval(CONFIG["controller_logging"]))
+        level = getattr(logging, CONFIG["controller_logging"])
+        logging.basicConfig(level=level)
 
 def main():
 
