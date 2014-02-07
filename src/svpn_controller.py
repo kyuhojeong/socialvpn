@@ -27,6 +27,7 @@ CONFIG = {
     "ip6_mask": 64,
     "subnet_mask": 32,
     "svpn_port": 5800,
+    "local_uid": "",
     "uid_size": 40,
     "sec": True,
     "wait_time": 30,
@@ -35,11 +36,26 @@ CONFIG = {
     "controller_logging" : "INFO"
 }
 
-def gen_ip4(uid, peers, ip4=None):
+IP_MAP = { }
+
+def gen_ip4(uid, peer_map, ip4=None):
     if ip4 is None:
         ip4 = CONFIG["ip4"]
+
+    def_ip = peer_map.get(uid)
+    if def_ip:
+        return def_ip
+
+    ips = set(v for _,v in peer_map.items())
     prefix, _ = ip4.rsplit(".", 1)
-    return "%s.%s" % (prefix, 101 + len(peers))
+    next_ip = "%s.%s" % (prefix, 255)
+    for i in range(101, 255):
+        try_ip = "%s.%s" % (prefix, i)
+        if not try_ip in ips:
+            next_ip = try_ip
+            break
+    peer_map[uid] = next_ip
+    return next_ip
 
 def gen_ip6(uid, ip6=None):
     if ip6 is None:
@@ -93,16 +109,18 @@ def do_set_logging(sock, logging):
     return make_call(sock, m="set_logging", logging=logging)
 
 class UdpServer(object):
-    def __init__(self, user, password, host, ip4):
+    def __init__(self, user, password, host, ip4, uid):
         self.state = {}
         self.peers = {}
         self.peerlist = set()
+        self.ip_map = IP_MAP.copy()
+
         if socket.has_ipv6:
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         else:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("", 0))
-        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
+
         do_set_logging(self.sock, CONFIG["tincan_logging"])
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid), CONFIG["ip4_mask"],
@@ -138,14 +156,41 @@ class UdpServer(object):
                     fpr_len = len(self.state["_fpr"])
                     fpr = msg["data"][:fpr_len]
                     cas = msg["data"][fpr_len + 1:]
-                    ip4 = gen_ip4(msg["uid"], self.peerlist, self.state["_ip4"])
+                    ip4 = gen_ip4(msg["uid"], self.ip_map, self.state["_ip4"])
                     self.create_connection(msg["uid"], fpr, 1, CONFIG["sec"],
                                            cas, ip4)
+
+def setup_config(config):
+    """ Validate config and set default value here.
+    Return True if config is changed.
+    """
+    is_changed = False
+    uid = config.get('local_uid')
+    if not uid:
+        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
+        config["local_uid"] = uid
+        is_changed = True
+    return is_changed
+
+def load_peer_ip_config(ip_config):
+    with open(ip_config) as f:
+        ip_cfg = json.load(f)
+
+    for peer_ip in ip_cfg:
+        uid = peer_ip["uid"]
+        ip = peer_ip["ipv4"]
+        IP_MAP[uid] = ip
+        logging.debug("MAP %s -> %s" % (ip, uid))
 
 def parse_config():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", help="load configuration from a file",
                         dest="config_file", metavar="config_file")
+    parser.add_argument("-u", help="update configuration file if needed",
+                        dest="update_config",action="store_const", const=True)
+    parser.add_argument("-p", help="load remote ip configuration file",
+                        dest="ip_config", metavar="ip_config")
+
     args = parser.parse_args()
 
     if args.config_file:
@@ -153,6 +198,11 @@ def parse_config():
         with open(args.config_file) as f:
             loaded_config = json.load(f)
         CONFIG.update(loaded_config)
+
+    need_save = setup_config(CONFIG)
+    if need_save and args.config_file and args.update_config:
+        with open(args.config_file, "w") as f:
+            json.dump(CONFIG, f, indent=4, sort_keys=True)
 
     if not ("xmpp_username" in CONFIG and "xmpp_host" in CONFIG):
         raise ValueError("At least 'xmpp_username' and 'xmpp_host' must be "
@@ -166,12 +216,15 @@ def parse_config():
         level = getattr(logging, CONFIG["controller_logging"])
         logging.basicConfig(level=level)
 
+    if args.ip_config:
+        load_peer_ip_config(args.ip_config)
+
 def main():
 
     parse_config()
     count = 0
     server = UdpServer(CONFIG["xmpp_username"], CONFIG["xmpp_password"],
-                       CONFIG["xmpp_host"], CONFIG["ip4"])
+                       CONFIG["xmpp_host"], CONFIG["ip4"], CONFIG["local_uid"])
     last_time = time.time()
     while True:
         server.serve()
