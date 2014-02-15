@@ -36,26 +36,25 @@ CONFIG = {
     "controller_logging" : "INFO"
 }
 
-IP_MAP = { }
+IP_MAP = {}
 
 def gen_ip4(uid, peer_map, ip4=None):
-    if ip4 is None:
-        ip4 = CONFIG["ip4"]
+    ip4 = ip4 or CONFIG["ip4"]
+    try:
+        return peer_map[uid]
+    except KeyError:
+        pass
 
-    def_ip = peer_map.get(uid)
-    if def_ip:
-        return def_ip
-
-    ips = set(v for _,v in peer_map.items())
+    ips = set(peer_map.itervalues())
     prefix, _ = ip4.rsplit(".", 1)
-    next_ip = "%s.%s" % (prefix, 255)
+    # We allocate to *.101 - *.254. This ensures a 3-digit suffix and avoids
+    # the broadcast address. *.100 is our IPv4 address.
     for i in range(101, 255):
-        try_ip = "%s.%s" % (prefix, i)
-        if not try_ip in ips:
-            next_ip = try_ip
-            break
-    peer_map[uid] = next_ip
-    return next_ip
+        peer_map[uid] = "%s.%s" % (prefix, i)
+        if peer_map[uid] not in ips:
+            return next_ip
+    del peer_map[uid]
+    raise OverflowError("Too many peers, out of IPv4 addresses")
 
 def gen_ip6(uid, ip6=None):
     if ip6 is None:
@@ -113,7 +112,7 @@ class UdpServer(object):
         self.state = {}
         self.peers = {}
         self.peerlist = set()
-        self.ip_map = IP_MAP.copy()
+        self.ip_map = dict(IP_MAP)
 
         if socket.has_ipv6:
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
@@ -143,7 +142,7 @@ class UdpServer(object):
         socks = select.select([self.sock], [], [], CONFIG["wait_time"])
         for sock in socks[0]:
             data, addr = sock.recvfrom(CONFIG["buf_size"])
-            if data[0] == '{':
+            if data[0] == "{":
                 msg = json.loads(data)
                 logging.debug("recv %s %s" % (addr, data))
                 msg_type = msg.get("type", None)
@@ -161,16 +160,14 @@ class UdpServer(object):
                                            cas, ip4)
 
 def setup_config(config):
-    """ Validate config and set default value here.
-    Return True if config is changed.
+    """Validate config and set default value here. Return ``True`` if config is
+    changed.
     """
-    is_changed = False
-    uid = config.get('local_uid')
-    if not uid:
-        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"]/2))
+    if "local_uid" not in config:
+        uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"] / 2))
         config["local_uid"] = uid
-        is_changed = True
-    return is_changed
+        return True # modified
+    return False
 
 def load_peer_ip_config(ip_config):
     with open(ip_config) as f:
@@ -187,7 +184,7 @@ def parse_config():
     parser.add_argument("-c", help="load configuration from a file",
                         dest="config_file", metavar="config_file")
     parser.add_argument("-u", help="update configuration file if needed",
-                        dest="update_config",action="store_const", const=True)
+                        dest="update_config", action="store_true")
     parser.add_argument("-p", help="load remote ip configuration file",
                         dest="ip_config", metavar="ip_config")
 
@@ -235,6 +232,6 @@ def main():
             do_get_state(server.sock)
             last_time = time.time()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
 
