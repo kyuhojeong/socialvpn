@@ -52,7 +52,7 @@ def gen_ip4(uid, peer_map, ip4=None):
     for i in range(101, 255):
         peer_map[uid] = "%s.%s" % (prefix, i)
         if peer_map[uid] not in ips:
-            return next_ip
+            return peer_map[uid]
     del peer_map[uid]
     raise OverflowError("Too many peers, out of IPv4 addresses")
 
@@ -163,7 +163,8 @@ def setup_config(config):
     """Validate config and set default value here. Return ``True`` if config is
     changed.
     """
-    if "local_uid" not in config:
+    #if "local_uid" not in config:
+    if not config["local_uid"]:
         uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"] / 2))
         config["local_uid"] = uid
         return True # modified
