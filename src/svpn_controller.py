@@ -163,7 +163,6 @@ def setup_config(config):
     """Validate config and set default value here. Return ``True`` if config is
     changed.
     """
-    #if "local_uid" not in config:
     if not config["local_uid"]:
         uid = binascii.b2a_hex(os.urandom(CONFIG["uid_size"] / 2))
         config["local_uid"] = uid
