@@ -27,13 +27,15 @@ CONFIG = {
     "ip6_mask": 64,
     "subnet_mask": 32,
     "svpn_port": 5800,
+    "tcp_port": 30000,
     "local_uid": "",
     "uid_size": 40,
     "sec": True,
     "wait_time": 30,
     "buf_size": 4096,
     "tincan_logging": 1,
-    "controller_logging" : "INFO"
+    "controller_logging" : "INFO",
+    "multihop_mode": False
 }
 
 IP_MAP = {}
@@ -107,6 +109,9 @@ def do_get_state(sock):
 def do_set_logging(sock, logging):
     return make_call(sock, m="set_logging", logging=logging)
 
+def do_send_peers(sock, peers):
+    return make_call(sock, m="send_peers")
+
 class UdpServer(object):
     def __init__(self, user, password, host, ip4, uid):
         self.state = {}
@@ -116,9 +121,16 @@ class UdpServer(object):
 
         if socket.has_ipv6:
             self.sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+            self.tcp_sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         else:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.bind(("", 0))
+        print uid
+        ip6 = gen_ip6(uid)
+        print ip6
+        self.tcp_sock.bind((ip6, CONFIG["tcp_port"]))
+        self.tcp_sock.listen(1)
 
         do_set_logging(self.sock, CONFIG["tincan_logging"])
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
@@ -139,7 +151,9 @@ class UdpServer(object):
                     do_trim_link(self.sock, k)
 
     def serve(self):
-        socks = select.select([self.sock], [], [], CONFIG["wait_time"])
+        socks = select.select([self.sock, self.tcp_sock], [], [], CONFIG["wait_time"])
+        print socks
+        print socks[0]
         for sock in socks[0]:
             data, addr = sock.recvfrom(CONFIG["buf_size"])
             if data[0] == "{":
@@ -230,6 +244,8 @@ def main():
             count += 1
             server.trim_connections()
             do_get_state(server.sock)
+            if CONFIG["multihop_mode"] :
+                do_send_peers(server.sock)
             last_time = time.time()
 
 if __name__ == "__main__":
