@@ -30,7 +30,7 @@ CONFIG = {
     "local_uid": "",
     "uid_size": 40,
     "sec": True,
-    "wait_time": 30,
+    "wait_time": 15,
     "buf_size": 4096,
     "tincan_logging": 1,
     "controller_logging" : "INFO"
@@ -70,11 +70,14 @@ def make_call(sock, **params):
     else: dest = (CONFIG["localhost"], CONFIG["svpn_port"])
     return sock.sendto(json.dumps(params), dest)
 
+def do_send_msg(sock, method, overlay_id, uid, data):
+    return make_call(sock, m=method, overlay_id=overlay_id, uid=uid, data=data)
+
 def do_set_cb_endpoint(sock, addr):
     return make_call(sock, m="set_cb_endpoint", ip=addr[0], port=addr[1])
 
 def do_register_service(sock, username, password, host):
-    return make_call(sock, m="register_service", username=username,
+    return make_call(sock, m="register_svc", username=username,
                      password=password, host=host)
 
 def do_create_link(sock, uid, fpr, overlay_id, sec, cas, stun=None, turn=None):
@@ -102,15 +105,19 @@ def do_set_remote_ip(sock, uid, ip4, ip6):
     return make_call(sock, m="set_remote_ip", uid=uid, ip4=ip4, ip6=ip6)
 
 def do_get_state(sock):
-    return make_call(sock, m="get_state")
+    return make_call(sock, m="get_state", stats=False)
 
 def do_set_logging(sock, logging):
     return make_call(sock, m="set_logging", logging=logging)
+
+def do_set_translation(sock, translate):
+    return make_call(sock, m="set_translation", translate=translate)
 
 class UdpServer(object):
     def __init__(self, user, password, host, ip4, uid):
         self.state = {}
         self.peers = {}
+        self.conn_stat = {}
         self.peerlist = set()
         self.ip_map = dict(IP_MAP)
 
@@ -121,6 +128,7 @@ class UdpServer(object):
         self.sock.bind(("", 0))
 
         do_set_logging(self.sock, CONFIG["tincan_logging"])
+        do_set_translation(self.sock, 1)
         do_set_cb_endpoint(self.sock, self.sock.getsockname())
         do_set_local_ip(self.sock, uid, ip4, gen_ip6(uid), CONFIG["ip4_mask"],
                         CONFIG["ip6_mask"], CONFIG["subnet_mask"])
@@ -138,6 +146,25 @@ class UdpServer(object):
                 if v["last_time"] > CONFIG["wait_time"] * 2:
                     do_trim_link(self.sock, k)
 
+    def trigger_conn_request(self, peer):
+        if "fpr" not in peer and peer["xmpp_time"] < CONFIG["wait_time"] * 8:
+            self.conn_stat[peer["uid"]] = "req_sent"
+            do_send_msg(self.sock, "con_req", 1, peer["uid"],
+                        self.state["_fpr"]);
+
+    def check_collision(self, msg_type, uid):
+        if msg_type == "con_req" and \
+           self.conn_stat.get(uid, None) == "req_sent":
+            if uid > self.state["_uid"]:
+                do_trim_link(self.sock, uid)
+                self.conn_stat.pop(uid, None)
+                return False
+        elif msg_type == "con_resp":
+            self.conn_stat[uid] = "rep_recv"
+            return False
+        else:
+            return True
+
     def serve(self):
         socks = select.select([self.sock], [], [], CONFIG["wait_time"])
         for sock in socks[0]:
@@ -147,11 +174,15 @@ class UdpServer(object):
                 logging.debug("recv %s %s" % (addr, data))
                 msg_type = msg.get("type", None)
 
-                if msg_type == "local_state": self.state = msg
-                elif msg_type == "peer_state": self.peers[msg["uid"]] = msg
+                if msg_type == "local_state":
+                    self.state = msg
+                elif msg_type == "peer_state":
+                    self.peers[msg["uid"]] = msg
+                    self.trigger_conn_request(msg)
                 # we ignore connection status notification for now
                 elif msg_type == "con_stat": pass
                 elif msg_type == "con_req" or msg_type == "con_resp":
+                    if self.check_collision(msg_type, msg["uid"]): continue
                     fpr_len = len(self.state["_fpr"])
                     fpr = msg["data"][:fpr_len]
                     cas = msg["data"][fpr_len + 1:]
